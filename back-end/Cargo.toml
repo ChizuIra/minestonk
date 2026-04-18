@@ -1,0 +1,12 @@
+[package]
+name = "minestonk"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+diesel = "2.3.7"
+dotenvy = "0.15.7"
+openapi = "0.1.5"
+rocket = "0.5.1"
+rocket_okapi = { version = "0.9.0", features = ["swagger"] }
+serde = "1.0.228"
