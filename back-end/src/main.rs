@@ -13,8 +13,10 @@ use diesel::prelude::*;
 use std::fmt::Debug;
 use crate::schema::users::dsl::users;
 use crate::schema::items::dsl::items;
+use crate::schema::currency::dsl::currency;
 use crate::schema::users::id;
-use crate::schema::inventory;           
+use crate::schema::inventory;       
+use crate::schema::wallet;        
 use crate::services::*;
 
 
@@ -51,6 +53,29 @@ struct UpdateItemInventory {
     quantity: i32,
 }
 
+#[derive(Deserialize, JsonSchema)]
+#[serde(crate = "rocket::serde")]
+struct CreateCurrencyInput {    
+    name: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(crate = "rocket::serde")]
+struct UpdateCurrencyWallet {
+    currency_id : i32,   
+    quantity: i32,
+}
+
+// ---------------------
+
+#[openapi]
+#[get("/")]
+fn index() -> Json<EchoResponse> {
+    Json(EchoResponse {
+        message: "Hello World".to_string(),
+    })
+}
+
 
 /*
 ================================================================================================================
@@ -74,14 +99,6 @@ fn create_user(input:Json<CreateUserInput>) -> Option<Json<()>>{
         .execute(connection);
     
     Some(rocket::serde::json::Json(()))
-}
-
-#[openapi]
-#[get("/")]
-fn index() -> Json<EchoResponse> {
-    Json(EchoResponse {
-        message: "Hello World".to_string(),
-    })
 }
 
 #[openapi]
@@ -177,6 +194,85 @@ fn get_inventory(id_user : i32) -> Option<Json<Vec<Inventory>>>{
     let connection = &mut establish_connection();   
     Some(rocket::serde::json::Json(inventory::dsl::inventory.filter(inventory::user_id.eq(id_user)).load::<Inventory>(connection).ok()?))
 }
+/*
+================================================================================================================
+========================================================================================================================
+========================================================================================================================================
+================================================================================================================================================
+=================================Currency===============================================================================================V
+========================================================================================================================
+*/
+
+#[openapi]
+#[post("/currency", format = "json", data = "<input>")]
+fn create_currency(input:Json<CreateCurrencyInput>) -> Option<Json<()>>{
+    let connection = &mut establish_connection();
+    let curr = CurrencyInsert {
+        name: input.name.clone(),
+    };    
+    diesel::insert_into(currency)
+        .values(&curr)
+        .execute(connection);
+    
+    Some(rocket::serde::json::Json(()))
+}
+
+#[openapi]
+#[get("/currency")]
+fn get_currencies() -> Option<Json<Vec<Currency>>>{
+    let connection = &mut establish_connection();
+    Some(rocket::serde::json::Json(currency.load::<Currency>(connection).ok()?))
+}
+
+
+/*
+================================================================================================================
+========================================================================================================================
+========================================================================================================================================
+================================================================================================================================================
+=================================Wallet===============================================================================================V
+========================================================================================================================
+*/
+
+#[openapi]
+#[patch("/wallet/<id_user>", format = "json", data = "<input>")]
+fn modify_amount_wallet(id_user : i32,input:Json<UpdateCurrencyWallet>) -> Option<Json<()>>{
+    let connection = &mut establish_connection();
+
+    let exist = wallet::dsl::wallet
+                 .filter(wallet::user_id.eq(id_user))
+                 .filter(wallet::currency_id.eq(input.currency_id))
+                 .count()
+                 .execute(connection).ok()?;
+
+    if  exist <= 0{
+
+        let create_wallet_slot = Wallet {
+            user_id: id_user,
+            currency_id: input.currency_id,
+            quantity: 0,
+        };
+
+        diesel::insert_into(wallet::dsl::wallet)
+                .values(&create_wallet_slot)
+                .execute(connection);
+    }
+
+    diesel::update(wallet::dsl::wallet)
+    .filter(wallet::user_id.eq(id_user))
+    .filter(wallet::currency_id.eq(input.currency_id))
+    .set(wallet::quantity.eq(wallet::quantity + input.quantity))
+    .execute(connection).ok()?;
+
+    Some(rocket::serde::json::Json(()))
+}
+
+#[openapi]
+#[get("/wallet/<id_user>")]
+fn get_wallet(id_user : i32) -> Option<Json<Vec<Wallet>>>{
+    let connection = &mut establish_connection();   
+    Some(rocket::serde::json::Json(wallet::dsl::wallet.filter(wallet::user_id.eq(id_user)).load::<Wallet>(connection).ok()?))
+}
 
 /*
 ================================================================================================================
@@ -192,7 +288,9 @@ fn rocket() -> _ {
         .mount("/", openapi_get_routes![index,
                                         create_user,get_users,get_user,
                                         create_item,get_items,
-                                        modify_amount_inventory,get_inventory])
+                                        modify_amount_inventory,get_inventory,
+                                        create_currency,get_currencies,
+                                        modify_amount_wallet,get_wallet])
         .mount(
             "/swagger",
             make_swagger_ui(&SwaggerUIConfig {
